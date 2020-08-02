@@ -1,0 +1,41 @@
+name: Deploy Production
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Cache Composer packages
+        id: composer-cache
+        uses: actions/cache@v2
+        with:
+          path: ./private_html/vendor
+          key: ${{ runner.os }}-php-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php-
+
+      - name: Install Composer dependencies
+        working-directory: ./private_html
+        if: steps.composer-cache.outputs.cache-hit != 'true'
+        run: composer install --prefer-dist --no-scripts --ignore-platform-reqs --no-progress --optimize-autoloader --no-interaction
+
+      - name: Install NPM dependencies
+        run: npm install --silent
+
+      - name: Compile assets
+        run: npm run production
+
+      - name: Deploy with rsync
+        env:
+            my_ssh_key: ${{ secrets.SSH_KEY }}
+        run: |
+            mkdir ~/.ssh
+            echo "$my_ssh_key" > ~/.ssh/gh_actions_key
+            chmod 600 ~/.ssh/gh_actions_key
+            rsync -avuh --delete --progress -h -e "ssh -i ~/.ssh/gh_actions_key -o StrictHostKeyChecking=no" --no-perms --no-owner --no-group --no-times --exclude-from "exclude.txt" --rsync-path="rsync" ${GITHUB_WORKSPACE}/ ${{ secrets.PROD_USER }}@${{secrets.PROD_HOST}}:${{secrets.PROD_FOLDER}}

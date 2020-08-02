@@ -1,0 +1,44 @@
+name: Deploy Production
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Cache Composer packages
+        id: composer-cache
+        uses: actions/cache@v2
+        with:
+          path: vendor
+          key: ${{ runner.os }}-php-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php-
+
+      - name: Install Composer dependencies
+        if: steps.composer-cache.outputs.cache-hit != 'true'
+        run: composer install --prefer-dist --no-scripts --ignore-platform-reqs --no-progress --optimize-autoloader --no-interaction
+      
+      - name: Install NPM dependencies
+        run: npm install --silent
+      
+      - name: Compile assets
+        run: npm run production
+
+      - name: Create a build branch
+        run: |
+          rm .gitignore
+          rm -fR .git
+          mv .deployignore .gitignore
+          git init
+          git config user.email "myuser@mydomain.com"
+          git config user.name "Fullname"
+          git remote add origin https://$GITHUB_ACTOR:${{ secrets.GITHUB_TOKEN }}@github.com/$GITHUB_REPOSITORY.git
+          git checkout -b master-build
+          git add -A && git commit -m "Build from $GITHUB_SHA"
+          git push --force -u origin master-build
